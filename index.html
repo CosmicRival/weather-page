@@ -499,39 +499,8 @@ $('humPress').textContent = `Humidity: ${humidity===null?'â€”':humidity + '%'} â
     $('status').textContent = 'Error fetching NWS data: ' + (err.message || err);
   }
 }
-<link rel="stylesheet" href="assets/style.css">
-<style>
-nav {
-  display: flex;
-  gap: 1em;
-  background: #222;
-  padding: 0.5em;
-}
-
-nav a {
-  color: #fff;
-  text-decoration: none;
-  padding: 0.5em 1em;
-  background: #444;
-  border-radius: 4px;
-}
-
-nav a:hover {
-  background: #666;
-}
-
-nav a.active {
-  background: #08f;
-}
-</style>
-
-<nav>
-  <a href="index.html" class="active">Dashboard</a>
-  <a href="stats.html">Stats</a>
-</nav>
 
 /* End of script */
 </script>
 </body>
 </html>
-
