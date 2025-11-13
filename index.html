@@ -433,6 +433,37 @@ THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND 
       }
     };
     run().catch(handleError);
+    <style>
+nav {
+  display: flex;
+  gap: 1em;
+  background: #222;
+  padding: 0.5em;
+}
+
+nav a {
+  color: #fff;
+  text-decoration: none;
+  padding: 0.5em 1em;
+  background: #444;
+  border-radius: 4px;
+}
+
+nav a:hover {
+  background: #666;
+}
+
+nav a.active {
+  background: #08f;
+}
+</style>
+
+<nav>
+  <a href="index.html" class="active">Dashboard</a>
+  <a href="stats.html">Stats</a>
+</nav>
+<link rel="stylesheet" href="assets/style.css">
+
   </script>
 </body>
 </html>
