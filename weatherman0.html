@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Custom Weather Dashboard — Final</title>
+
+<!-- SunCalc for sun/moon positions & illumination -->
+<script src="https://unpkg.com/suncalc@1.9.0/suncalc.js"></script>
+
+<style>
+:root{--bg:#f8fafc;--card:#fff;--accent:#4f46e5;--muted:#6b7280}
+body{margin:0;padding:18px;background:linear-gradient(180deg,#eef2ff,#ffffff);font-family:Inter,system-ui,Arial;color:#071033}
+.container{max-width:980px;margin:0 auto}
+.card{background:var(--card);padding:18px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,0.06)}
+header{display:flex;gap:12px;align-items:center}
+h1{margin:0;font-size:1.1rem}
+.muted{color:var(--muted);font-size:0.92rem}
+.controls{display:flex;gap:8px;margin:12px 0}
+button{background:var(--accent);color:#fff;border:0;padding:8px 10px;border-radius:8px;cursor:pointer}
+button.secondary{background:#94a3b8}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.block{padding:12px;border-radius:10px;background:linear-gradient(180deg,#fff,#f8fafc)}
+table{width:100%;border-collapse:collapse}
+th,td{padding:6px 8px;text-align:left;border-bottom:1px solid #eef2ff}
+.big{font-size:1.2rem;font-weight:700}
+footer{margin-top:12px;color:var(--muted);font-size:0.9rem}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+  <div class="container">
+    <div class="card" role="main" aria-live="polite">
+      <header>
+        <div style="width:44px;height:44px;border-radius:10px;background:rgba(79,70,229,0.06);display:flex;align-items:center;justify-content:center;color:var(--accent)">☼</div>
+        <div>
+          <h1>Custom Weather Dashboard — Final</h1>
+          <div class="muted">Auto location • NWS + optional OpenWeather pressure • Custom units</div>
+        </div>
+      </header>
+
+      <div class="controls">
+        <button id="useLocation">Use My Location</button>
+        <button id="refresh" class="secondary">Refresh</button>
+        <div id="status" class="muted" style="margin-left:8px">Idle</div>
+      </div>
+
+      <div id="mainContent" style="display:none">
+        <div class="grid">
+          <div class="block">
+            <div class="muted">Location</div>
+            <div id="locDisplay" class="big">—</div>
+            <div id="coordsDisplay" class="muted">—</div>
+
+            <div style="margin-top:12px" class="muted">Time (°t)</div>
+            <div id="timeCompound" class="big">—</div>
+
+            <div style="margin-top:10px" class="muted">Human time / Sunrise / Sunset</div>
+            <div id="humanTime">—</div>
+            <div id="sunriseSunset" class="muted">—</div>
+
+          </div>
+
+          <div class="block">
+            <div class="muted">Current Conditions</div>
+            <div style="display:flex;gap:12px;align-items:center;margin-top:8px">
+              <div>
+                <div class="muted">Temp (karb/Æ-mol)</div>
+                <div id="tempConv" class="big">—</div>
+              </div>
+              <div>
+                <div class="muted">Dew Point</div>
+                <div id="dewConv" class="big">—</div>
+              </div>
+            </div>
+
+            <div style="margin-top:10px" class="muted">Wind</div>
+            <div id="windBlock">—</div>
+
+            <div style="margin-top:10px" class="muted">Humidity / Pressure</div>
+            <div id="humPress">—</div>
+          </div>
+        </div>
+
+        <section style="margin-top:12px">
+          <div class="muted">Hourly (next 12)</div>
+          <div class="block" style="margin-top:8px">
+            <table id="hourlyTable">
+              <thead><tr><th>Time (°t)</th><th>Temp</th><th>Cond</th><th>Precip % / Snow %</th><th>Wind</th></tr></thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section style="margin-top:12px" class="grid">
+          <div class="block">
+            <div class="muted">Sun & Moon</div>
+            <div style="margin-top:6px">
+              <div>Moon phase: <span id="moonPhase">—</span></div>
+              <div>Moon distance (N,): <span id="moonDist">—</span></div>
+              <div>Moon illuminance (bc): <span id="moonLux">—</span></div>
+              <div style="margin-top:6px">Sun illuminance (bc): <span id="sunLux">—</span></div>
+              <div style="margin-top:6px">Sun distance (N,): <span id="sunDist">—</span></div>
+            </div>
+          </div>
+
+          <div class="block">
+            <div class="muted">Other</div>
+            <div style="margin-top:6px">Total rainfall (next 24h) (N°⁗): <span id="rainTotal">—</span></div>
+            <div style="margin-top:6px">Total snowfall (next 24h) (N°⁗): <span id="snowTotal">—</span></div>
+            <div style="margin-top:6px">Altitude (N°") : <span id="altUnit">—</span></div>
+          </div>
+        </section>
+
+        <footer>
+          <div class="muted">Notes: NWS (weather.gov) for forecast data (U.S. only). OpenWeather used only for atmospheric pressure if API key provided. Geocoding: Nominatim. Elevation: Open-Elevation.</div>
+        </footer>
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ======================
+   CONFIG
+   ====================== */
+
+/* ======================
+   Utilities & custom-unit converters
+   ====================== */
+const $ = id => document.getElementById(id);
+function floor(v){ return Math.floor(v); }
+function nowUnix() { return Math.floor(Date.now()/1000); }
+
+/* ----- Compound header time parts ----- */
+// Part A: floor(((unix - 946684800)/31557600) + 200)
+function computePartA(unix) {
+  return Math.floor(((unix - 946684800)/31557600) + 200);
+}
+// Part B: custom month/day encoding
+function computePartB(date) {
+  const unix = Math.floor(date.getTime()/1000);
+  const val = ((unix - 946684800) / 86400);
+  const mod = ((val % 1461) + 1461) % 1461;
+  let result;
+  if (mod >= 1440) result = Math.floor(mod - 1080);
+  else result = Math.floor(mod % 360);
+  return result;
+}
+// Part C: minutes since local midnight /4 floored
+function computePartC(date) {
+  const midnight = new Date(date);
+  midnight.setHours(0,0,0,0);
+  const mins = Math.floor((date - midnight)/60000);
+  return Math.floor(mins / 4);
+}
+// Part D: seconds since local midnight *1.5 mod 360 floored
+function computePartD(date) {
+  const midnight = new Date(date);
+  midnight.setHours(0,0,0,0);
+  const secs = Math.floor((date - midnight)/1000);
+  return Math.floor((secs * 1.5) % 360);
+}
+function formatCompoundTime(date) {
+  const unix = Math.floor(date.getTime()/1000);
+  const A = computePartA(unix);
+  const B = computePartB(date);
+  const C = computePartC(date);
+  const D = computePartD(date);
+  return `6E ${A},,${B},${C}°${D}°’t`;
+}
+// Simplified hourly short form: minutes since midnight /4 (e.g., 135°t)
+function simpleTForTime(date) {
+  const midnight = new Date(date);
+  midnight.setHours(0,0,0,0);
+  const mins = Math.floor((date - midnight)/60000);
+  return `${Math.floor(mins / 4)}°t`;
+}
+
+/* ----- Angle / latlon formatting (subdivisions) ----- */
+function angleToSubdivisions(decimalDeg) {
+  const parts=[];
+  let rem = Math.abs(decimalDeg);
+  const deg = Math.floor(rem);
+  parts.push(deg);
+  let frac = rem - deg;
+  const labels=["°","°’","°”","°‴","°⁗","°⁗’","°⁗”","°⁗‴","°⁗⁗","°⁗⁗’"];
+  for (let i=1;i<10;i++){
+    const val = Math.floor(frac * 360);
+    parts.push(val);
+    frac = frac * 360 - val;
+  }
+  const out = `${deg}${labels[0]}${parts[1]}${labels[1]}${parts[2]}${labels[2]}${parts[3]}${labels[3]}${parts[4]}${labels[4]}${parts[5]}${labels[5]}`;
+  return (decimalDeg<0?'-':'') + out;
+}
+function formatLatLngForUser(lat, lon) {
+  const latStr = angleToSubdivisions(lat) + (lat>=0?' N':' S');
+  const lonStr = angleToSubdivisions(lon) + (lon>=0?' E':' W');
+  return latStr + ' , ' + lonStr;
+}
+
+/* ----- Unit conversions from earlier spec ----- */
+function cToKarb(celsius) {
+  const R = celsius * 9/5 + 491.67;
+  const karb = (R * 4.61914589897402) * (129600 / 214369);
+  return Number(karb.toFixed(6)) + ' karb/Æ-mol';
+}
+function parseWindSpeed(str) {
+  if (!str) return '0 na';
+  if (/calm/i.test(str)) return '0 na';
+  const nums = Array.from(str.matchAll(/-?\d+\.?\d*/g)).map(m=>parseFloat(m[0]));
+  const unitMatch = str.match(/(mph|km\/h|kph|m\/s|kt|kts|knots|kn)/i);
+  const unit = unitMatch ? unitMatch[0].toLowerCase() : null;
+  let val = nums.length ? nums.reduce((a,b)=>a+b,0)/nums.length : 0;
+  let knots = val;
+  if (!unit || /mph/i.test(unit)) knots = val / 1.150779448;
+  else if (/km\/h|kph/i.test(unit)) knots = val / 1.852;
+  else if (/m\/s/i.test(unit)) knots = val * 1.943844;
+  else knots = val;
+  const na = knots / 2.5;
+  return Number(na.toFixed(4)) + ' na';
+}
+function mmToNdegPrime(mm) {
+  if (!mm) return '0 N°⁗';
+  const meters = mm / 1000;
+  const nmi = meters / 1852;
+  const unitVal = nmi * 777600;
+  return Number(unitVal.toFixed(6)) + ' N°⁗';
+}
+function metersToNUnitQuote(m) {
+  if (m === null || m === undefined) return '0 N°"';
+  const nmi = m / 1852;
+  const units = nmi * 2160;
+  return Number(units.toFixed(6)) + ' N°"';
+}
+function kmToNComma(km) {
+  if (!km) return '—';
+  const meters = km * 1000;
+  const nmi = meters / 1852;
+  const Nunits = nmi / 21600;
+  return Number(Nunits.toFixed(6)) + ' N,';
+}
+function luxToBc(lux) {
+  return Number((lux / 1.36027131).toFixed(6)) + ' bc';
+}
+function paToDrc(pa) {
+  if (!pa) return '—';
+  return Number((pa / 2.13751365694).toFixed(6)) + ' drc';
+}
+
+/* ----- Sun & Moon lux & phase ----- */
+function calcMoonLux(lat, lon, humidity=0, cloudCover=0, albedoFactor=1.0, lightPollution=0.01, moonDistanceKm = null) {
+  const now = new Date();
+  const mi = SunCalc.getMoonIllumination(now);
+  const mp = SunCalc.getMoonPosition(now, lat, lon);
+  let moonDistKm = moonDistanceKm || (mp && mp.distance ? mp.distance : 384400);
+  const f = mi.fraction;
+  let E = 0.25 * Math.pow(f, 2.5);
+  const alt = mp.altitude || 0;
+  E *= Math.max(0, Math.sin(alt));
+  const cloudFactor = 1 - (cloudCover / 100) * 0.9;
+  const humidityFactor = 1 - (humidity / 100) * 0.2;
+  const distanceFactor = Math.pow(384400 / moonDistKm, 2);
+  E = E * cloudFactor * humidityFactor * distanceFactor * albedoFactor + lightPollution;
+  if (E < 0) E = 0;
+  return E;
+}
+function calcSunLux(lat, lon, cloudCover=0, altitudeMeters=0) {
+  const now = new Date();
+  const sp = SunCalc.getPosition(now, lat, lon);
+  const h = sp.altitude || 0;
+  const Tc = 1 - 0.7 * (cloudCover / 100);
+  const altitudeFactor = 1 + (altitudeMeters / 1000) * 0.10;
+  let E = 120000 * Tc * Math.pow(Math.max(0, Math.sin(h)), 1.25) * altitudeFactor;
+  if (E < 0.1 && h > -0.5) E = 0.1;
+  if (E > 120000) E = 120000;
+  return E;
+}
+
+/* ======================
+   Fetching & wiring: geocode, elevation, NWS, optional OpenWeather
+   ====================== */
+$('useLocation').addEventListener('click', initLocation);
+$('refresh').addEventListener('click', ()=>{ if (window.lastPos) fetchAll(window.lastPos.lat, window.lastPos.lon, window.lastPos.display); });
+
+async function initLocation(){
+  $('status').textContent = 'Requesting device location…';
+  if (!navigator.geolocation) { $('status').textContent = 'Geolocation not supported'; return; }
+  navigator.geolocation.getCurrentPosition(async pos => {
+    const lat = pos.coords.latitude, lon = pos.coords.longitude;
+    window.lastPos = {lat, lon};
+    $('status').textContent = 'Got location, fetching data…';
+    await fetchAll(lat, lon, null);
+  }, err => {
+    $('status').textContent = 'Geolocation error: ' + err.message;
+  }, { enableHighAccuracy: true, timeout: 15000 });
+}
+
+async function reverseGeocode(lat, lon) {
+  try {
+    const res = await fetch(`https://nominatim.openstreetmap.org/reverse?lat=${lat}&lon=${lon}&format=jsonv2`);
+    if (!res.ok) throw new Error('Geocode failed');
+    const js = await res.json();
+    const city = (js.address && (js.address.city || js.address.town || js.address.village || js.address.hamlet || js.address.county)) || js.display_name;
+    return {display: city + ', U.S.', raw: js};
+  } catch (e) {
+    return {display: `${lat.toFixed(3)}, ${lon.toFixed(3)} U.S.`, raw: null};
+  }
+}
+
+async function fetchElevation(lat, lon) {
+  try {
+    const res = await fetch(`https://api.open-elevation.com/api/v1/lookup?locations=${lat},${lon}`);
+    if (!res.ok) throw new Error('elev fail');
+    const js = await res.json();
+    if (js && js.results && js.results[0] && typeof js.results[0].elevation !== 'undefined') return js.results[0].elevation;
+  } catch(e){}
+  return 0;
+}
+
+function maybeNum(v){
+  if (v === null || typeof v === 'undefined') return null;
+  if (typeof v === 'number') return v;
+  const n = parseFloat(v);
+  return isNaN(n) ? null : n;
+}
+
+async function fetchAll(lat, lon, displayName) {
+  $('status').textContent = 'Reverse geocoding...';
+  const ge = displayName ? {display: displayName} : await reverseGeocode(lat, lon);
+  $('locDisplay').textContent = ge.display;
+  $('coordsDisplay').textContent = formatLatLngForUser(lat, lon);
+  window.lastPos = {lat, lon, display: ge.display};
+
+  $('status').textContent = 'Getting elevation...';
+  const elevationMeters = await fetchElevation(lat, lon);
+  $('altUnit').textContent = metersToNUnitQuote(elevationMeters);
+
+  $('status').textContent = 'Fetching NWS point...';
+  try {
+    const pointRes = await fetch(`https://api.weather.gov/points/${lat},${lon}`);
+    if (!pointRes.ok) throw new Error('NWS point failed');
+    const point = await pointRes.json();
+    const hourlyUrl = point.properties.forecastHourly;
+    const forecastUrl = point.properties.forecast;
+
+    $('status').textContent = 'Fetching hourly forecast...';
+    const hrRes = await fetch(hourlyUrl);
+    const hrData = await hrRes.json();
+
+    $('status').textContent = 'Fetching short forecast...';
+    const fRes = await fetch(forecastUrl);
+    const fData = await fRes.json();
+
+    /* Header times */
+    const now = new Date();
+    $('timeCompound').textContent = formatCompoundTime(now);
+    $('humanTime').textContent = now.toLocaleString();
+
+    /* Sunrise / Sunset in °t (minutes /4 floored) */
+    const times = SunCalc.getTimes(now, lat, lon);
+    const sunrise = times.sunrise || times.sunriseEnd || null;
+    const sunset = times.sunset || times.sunsetStart || null;
+    function minutesDiv4For(dateObj){
+      if(!dateObj) return '—';
+      const m = dateObj.getHours()*60 + dateObj.getMinutes();
+      return `${Math.floor(m/4)}°t`;
+    }
+    $('sunriseSunset').textContent = `${sunrise ? minutesDiv4For(sunrise) : '—'} / ${sunset ? minutesDiv4For(sunset) : '—'}`;
+
+    /* Hourly list handling */
+    const hours = hrData.properties && hrData.properties.periods ? hrData.properties.periods : [];
+    const upcoming = hours.filter(h => new Date(h.startTime) >= now);
+    const next12 = upcoming.slice(0,12).length ? upcoming.slice(0,12) : hours.slice(0,12);
+    const cur = next12[0] || hours[0];
+
+    /* Temperature & dew */
+    let tempC = null;
+    if (cur && typeof cur.temperature === 'number') tempC = (cur.temperatureUnit==='F') ? (cur.temperature -32) * 5/9 : cur.temperature;
+    if (tempC === null) tempC = 0;
+    $('tempConv').textContent = cToKarb(tempC);
+
+    const dewC = cur && cur.dewpoint && maybeNum(cur.dewpoint.value)!==null ? cur.dewpoint.value : null;
+    $('dewConv').textContent = dewC === null ? '—' : cToKarb(dewC);
+
+    /* humidity */
+    const humidity = cur && cur.relativeHumidity && maybeNum(cur.relativeHumidity.value)!==null ? cur.relativeHumidity.value : (cur && cur.relativeHumidity ? maybeNum(cur.relativeHumidity) : null);
+
+// From point.properties.observationStations
+const stationsUrl = point.properties.observationStations;
+const stationsRes = await fetch(stationsUrl);
+const stationsData = await stationsRes.json();
+const firstStation = stationsData.features[0]; // pick the first station
+const stationId = firstStation.properties.stationIdentifier;
+
+// Fetch latest observation
+const obsRes = await fetch(`https://api.weather.gov/stations/${stationId}/observations/latest`);
+const stationObs = await obsRes.json();
+
+const pressurePa = maybeNum(stationObs.properties.barometricPressure.value);
+const pressureDisplay = pressurePa ? paToDrc(pressurePa) : '—';
+$('humPress').textContent = `Humidity: ${humidity===null?'—':humidity + '%'} • Pressure: ${pressureDisplay}`;
+
+    /* Wind display */
+    const windSpeedStr = cur && cur.windSpeed ? cur.windSpeed : '';
+    const windDir = cur && cur.windDirection ? cur.windDirection : '—';
+    $('windBlock').textContent = `Wind: ${parseWindSpeed(windSpeedStr)} • Dir: ${windDir}`;
+
+    /* Build hourly table with short time form and Precip%/Snow% column */
+    const tbody = document.querySelector('#hourlyTable tbody');
+    tbody.innerHTML = '';
+    for (const p of next12) {
+      const tr = document.createElement('tr');
+
+      // Short time for hourly column
+      const tdTime = document.createElement('td');
+      tdTime.textContent = simpleTForTime(new Date(p.startTime));
+      tr.appendChild(tdTime);
+
+      // Temp
+      const tdTemp = document.createElement('td');
+      let pTempC = null;
+      if (typeof p.temperature === 'number') pTempC = (p.temperatureUnit==='F') ? (p.temperature -32) * 5/9 : p.temperature;
+      tdTemp.textContent = pTempC !== null ? cToKarb(pTempC) : '—';
+      tr.appendChild(tdTemp);
+
+      // Condition
+      const tdCond = document.createElement('td');
+      tdCond.textContent = p.shortForecast || p.name || '—';
+      tr.appendChild(tdCond);
+
+      // Precip% / Snow% column
+      // Try probabilityOfPrecipitation.value and probabilityOfSnow.value if present
+      const precipProb = p.probabilityOfPrecipitation && maybeNum(p.probabilityOfPrecipitation.value)!==null ? p.probabilityOfPrecipitation.value : null;
+      const snowProb = p.probabilityOfSnow && maybeNum(p.probabilityOfSnow.value)!==null ? p.probabilityOfSnow.value : null;
+      // heuristic fallback: if shortForecast mentions 'snow' then use PoP as Snow% else show blank for snow%
+      let snowHeuristic = null;
+      if (snowProb === null) {
+        const txt = (p.shortForecast || '').toLowerCase();
+        if (txt.includes('snow')) snowHeuristic = precipProb || 0;
+      }
+      const tdPrecip = document.createElement('td');
+      const precipText = (precipProb===null ? '—' : precipProb + '%');
+      const snowText = (snowProb !== null ? (snowProb + '%') : (snowHeuristic !== null ? (snowHeuristic + '%') : '—'));
+      tdPrecip.textContent = `${precipText} / ${snowText}`;
+      tr.appendChild(tdPrecip);
+
+      // Wind
+      const tdWind = document.createElement('td');
+      tdWind.textContent = `${parseWindSpeed(p.windSpeed)} • ${p.windDirection || '—'}`;
+      tr.appendChild(tdWind);
+
+      tbody.appendChild(tr);
+    }
+
+    /* Totals next 24h */
+    let totalRainMM = 0;
+    let totalSnowMM = 0;
+    for (let i=0;i<Math.min(hours.length,24);i++){
+      const v = hours[i];
+      if (v) {
+        const rain = v.quantitativePrecipitation && maybeNum(v.quantitativePrecipitation.value)!==null ? v.quantitativePrecipitation.value : 0;
+        totalRainMM += rain;
+        let snowVal = 0;
+        if (v.snowfallAmount && maybeNum(v.snowfallAmount.value)!==null) snowVal = v.snowfallAmount.value;
+        else if (v.snowAmount && maybeNum(v.snowAmount.value)!==null) snowVal = v.snowAmount.value;
+        totalSnowMM += snowVal;
+      }
+    }
+    $('rainTotal').textContent = mmToNdegPrime(totalRainMM);
+    $('snowTotal').textContent = mmToNdegPrime(totalSnowMM);
+
+    /* Sun & Moon calculations: phase, distance, lux */
+    const now2 = new Date();
+    const moonIllum = SunCalc.getMoonIllumination(now2);
+    const moonPos = SunCalc.getMoonPosition(now2, lat, lon);
+    const sunPos = SunCalc.getPosition(now2, lat, lon);
+    const moonDistKm = moonPos && moonPos.distance ? moonPos.distance : 384400;
+    const sunMeanKm = 149600000;
+
+    const cloudCover = (cur && typeof cur.cloudCover === 'number') ? cur.cloudCover : (cur && cur.probabilityOfPrecipitation && maybeNum(cur.probabilityOfPrecipitation.value)!==null ? Math.min(100, cur.probabilityOfPrecipitation.value) : 0);
+    const humidityVal = (typeof humidity === 'number') ? humidity : 50;
+
+    const moonLuxVal = calcMoonLux(lat, lon, humidityVal, cloudCover || 0, 1.0, 0.01, moonDistKm);
+    const sunLuxVal = calcSunLux(lat, lon, cloudCover || 0, elevationMeters);
+
+    // moon phase: illuminated fraction *100 (accurate)
+    $('moonPhase').textContent = Math.round(moonIllum.fraction * 100) + '%';
+    $('moonDist').textContent = kmToNComma(moonDistKm);
+    $('moonLux').textContent = luxToBc(moonLuxVal);
+    $('sunLux').textContent = luxToBc(sunLuxVal);
+    $('sunDist').textContent = kmToNComma(sunMeanKm);
+
+    /* Show main content */
+    $('mainContent').style.display = 'block';
+    $('status').textContent = 'Updated: ' + (new Date()).toLocaleString();
+
+  } catch (err) {
+    console.error(err);
+    $('status').textContent = 'Error fetching NWS data: ' + (err.message || err);
+  }
+}
+
+/* End of script */
+</script>
+</body>
+</html>
